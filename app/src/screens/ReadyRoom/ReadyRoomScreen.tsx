@@ -22,11 +22,25 @@ type NavigationProp = NativeStackNavigationProp<
 
 export const ReadyRoomScreen = (): React.JSX.Element => {
   const navigation = useNavigation<NavigationProp>();
-  const {flows, cards} = useVaultStore();
+  const {flows, cards, lock} = useVaultStore();
   const {startSession} = useSessionStore();
   const [selectedFlowId, setSelectedFlowId] = useState<string | null>(null);
 
   const selectedFlow = flows.find(f => f.id === selectedFlowId);
+
+  const handleLockVault = () => {
+    Alert.alert('Lock Vault', 'Lock the vault and return to authentication?', [
+      {text: 'Cancel', style: 'cancel'},
+      {
+        text: 'Lock',
+        style: 'destructive',
+        onPress: () => {
+          lock();
+          navigation.replace('LockGate');
+        },
+      },
+    ]);
+  };
 
   // Check if player has all required counter cards for selected flow
   const getMissingCounters = (flow: Flow): string[] => {
@@ -67,6 +81,9 @@ export const ReadyRoomScreen = (): React.JSX.Element => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity style={styles.lockButton} onPress={handleLockVault}>
+          <Text style={styles.lockButtonText}>🔒 Lock</Text>
+        </TouchableOpacity>
         <Text style={styles.title}>Ready Room</Text>
         <Text style={styles.subtitle}>
           Stage your deckpacks and calibrate the cadence.
@@ -157,6 +174,20 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#222222',
+  },
+  lockButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#333333',
+    borderRadius: 6,
+  },
+  lockButtonText: {
+    fontSize: 14,
+    color: '#ffaa00',
+    fontWeight: 'bold',
   },
   title: {
     fontSize: 28,

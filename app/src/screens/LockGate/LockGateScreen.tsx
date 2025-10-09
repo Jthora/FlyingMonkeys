@@ -6,6 +6,8 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '@/navigation/AppNavigator';
 import {useVaultStore} from '@/state/useVaultStore';
 import {attemptUnlock, checkLockoutStatus} from '@/vault/unlockHelper';
+import {createVault, vaultExists} from '@/vault/vaultDriver';
+import {seedCards, seedFlows} from '@/vault/seedData';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'LockGate'>;
 
@@ -13,20 +15,28 @@ export const LockGateScreen = (): React.JSX.Element => {
   const navigation = useNavigation<NavigationProp>();
   const {unlock, isUnlocked} = useVaultStore();
   const [pin, setPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isCreatingVault, setIsCreatingVault] = useState(false);
+  const [hasVault, setHasVault] = useState<boolean | null>(null);
   const [lockoutInfo, setLockoutInfo] = useState<{
     remainingMs: number;
   } | null>(null);
 
-  // Check for lockout on mount
+  // Check if vault exists on mount
   useEffect(() => {
-    const checkLockout = async () => {
-      const remaining = await checkLockoutStatus();
-      if (remaining !== null && remaining > 0) {
-        setLockoutInfo({remainingMs: remaining});
+    const checkVault = async () => {
+      const exists = await vaultExists();
+      setHasVault(exists);
+
+      if (exists) {
+        const remaining = await checkLockoutStatus();
+        if (remaining !== null && remaining > 0) {
+          setLockoutInfo({remainingMs: remaining});
+        }
       }
     };
-    checkLockout();
+    checkVault();
   }, []);
 
   // Update lockout timer every second
@@ -64,11 +74,72 @@ export const LockGateScreen = (): React.JSX.Element => {
     setPin(prev => prev.slice(0, -1));
   };
 
+  const handleCancelCreate = () => {
+    setPin('');
+    setConfirmPin('');
+    setIsCreatingVault(false);
+  };
+
   const handleUnlock = async () => {
     if (pin.length === 0 || lockoutInfo) return;
     setIsLoading(true);
 
     try {
+      // Creating new vault mode
+      if (!hasVault && !isCreatingVault) {
+        // First PIN entry - move to confirmation
+        setConfirmPin(pin);
+        setPin('');
+        setIsCreatingVault(true);
+        setIsLoading(false);
+        return;
+      }
+
+      // Confirming new vault PIN
+      if (!hasVault && isCreatingVault) {
+        if (pin !== confirmPin) {
+          Alert.alert('PIN Mismatch', 'PINs do not match. Please try again.');
+          setPin('');
+          setConfirmPin('');
+          setIsCreatingVault(false);
+          setIsLoading(false);
+          return;
+        }
+
+        // Create vault with seed data
+        try {
+          await createVault(pin, {
+            cards: seedCards,
+            flows: seedFlows,
+          });
+
+          // Load the newly created vault
+          const result = await attemptUnlock(pin);
+          if (result.status === 'success') {
+            const vaultData = {
+              cards: result.cards,
+              flows: result.flows,
+              salt: '',
+              version: 1,
+              lastModified: new Date().toISOString(),
+            };
+            unlock(pin, vaultData);
+            Alert.alert(
+              'Vault Created',
+              `Your vault has been created with ${seedCards.length} starter cards and ${seedFlows.length} flows.`,
+            );
+          }
+        } catch (error) {
+          Alert.alert('Error', 'Failed to create vault. Please try again.');
+          setPin('');
+          setConfirmPin('');
+          setIsCreatingVault(false);
+        }
+        setIsLoading(false);
+        return;
+      }
+
+      // Unlocking existing vault
       const result = await attemptUnlock(pin);
 
       if (result.status === 'success') {
@@ -98,14 +169,12 @@ export const LockGateScreen = (): React.JSX.Element => {
           )} minutes.`,
         );
       } else if (result.status === 'no-vault') {
-        Alert.alert(
-          'No Vault Found',
-          'No vault exists. Create one by entering a new PIN.',
-        );
+        // This shouldn't happen if hasVault is tracked correctly
+        setHasVault(false);
         setPin('');
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to unlock vault. Please try again.');
+      Alert.alert('Error', 'Failed to process request. Please try again.');
       setPin('');
     } finally {
       setIsLoading(false);
@@ -190,11 +259,24 @@ export const LockGateScreen = (): React.JSX.Element => {
 
       {/* Status Text */}
       <View style={styles.footer}>
+        {isCreatingVault && (
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={handleCancelCreate}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        )}
         <Text style={styles.footerText}>
           {isLoading
-            ? 'Unlocking...'
+            ? hasVault
+              ? 'Unlocking...'
+              : 'Creating vault...'
             : lockoutInfo
             ? 'Too many failed attempts'
+            : hasVault === false
+            ? isCreatingVault
+              ? 'Confirm your PIN'
+              : 'Create a new vault by entering a PIN'
             : 'Enter your PIN'}
         </Text>
       </View>
@@ -275,6 +357,18 @@ const styles = StyleSheet.create({
   footer: {
     marginTop: 40,
     alignItems: 'center',
+    gap: 12,
+  },
+  cancelButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#333333',
+    borderRadius: 6,
+  },
+  cancelButtonText: {
+    fontSize: 14,
+    color: '#00aaff',
+    fontWeight: 'bold',
   },
   footerText: {
     fontSize: 14,
