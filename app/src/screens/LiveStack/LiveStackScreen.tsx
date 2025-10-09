@@ -5,14 +5,25 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
+  Alert,
 } from 'react-native';
+import {useNavigation} from '@react-navigation/native';
+import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 
+import type {RootStackParamList} from '@/navigation/AppNavigator';
 import {useSessionStore} from '@/state/useSessionStore';
 import {useCamoStore} from '@/state/useCamoStore';
 import {TurnEngine} from '@/turn/TurnEngine';
 import {CamouflageCurtain} from '@/components/CamouflageCurtain';
+import {TimerDisplay} from '@/components/TimerDisplay';
+
+type NavigationProp = NativeStackNavigationProp<
+  RootStackParamList,
+  'LiveStack'
+>;
 
 export const LiveStackScreen = (): React.JSX.Element => {
+  const navigation = useNavigation<NavigationProp>();
   const {
     currentCard,
     upcomingCards,
@@ -25,6 +36,7 @@ export const LiveStackScreen = (): React.JSX.Element => {
     currentIndex,
     heatOpponent,
     updateTimer,
+    endSession,
   } = useSessionStore();
   const {activate: activateCamo} = useCamoStore();
 
@@ -85,9 +97,26 @@ export const LiveStackScreen = (): React.JSX.Element => {
     setLastTap(now);
   };
 
-  // Timer progress (0-1 scale)
-  const timerProgress = Math.min(timerElapsed / 4, 1);
-  const timerColor = isWarning ? '#ff4444' : '#00aa00';
+  const handleEndSession = () => {
+    Alert.alert(
+      'End Session',
+      'End this Live Stack session and return to Ready Room?',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'End Session',
+          style: 'destructive',
+          onPress: () => {
+            if (engineRef.current) {
+              engineRef.current.stop();
+            }
+            endSession();
+            navigation.replace('ReadyRoom');
+          },
+        },
+      ],
+    );
+  };
 
   // Flight path color (gradient from red to green)
   const getFlightColor = (value: number): string => {
@@ -100,23 +129,17 @@ export const LiveStackScreen = (): React.JSX.Element => {
     <View style={styles.container}>
       {/* Command Rail */}
       <View style={styles.commandRail}>
-        {/* Timer Bead */}
-        <View style={styles.timerContainer}>
-          <View style={styles.timerTrack}>
-            <View
-              style={[
-                styles.timerBead,
-                {
-                  left: `${timerProgress * 100}%`,
-                  backgroundColor: timerColor,
-                },
-              ]}
-            />
-          </View>
-          <Text style={styles.timerText}>
-            {timerElapsed.toFixed(1)}s / 4.0s
-          </Text>
-        </View>
+        {/* Exit Button */}
+        <TouchableOpacity style={styles.exitButton} onPress={handleEndSession}>
+          <Text style={styles.exitButtonText}>✕</Text>
+        </TouchableOpacity>
+
+        {/* Enhanced Timer Display */}
+        <TimerDisplay
+          elapsed={timerElapsed}
+          duration={4.0}
+          isWarning={isWarning}
+        />
 
         {/* Flight Gauge */}
         <View style={styles.flightContainer}>
@@ -240,6 +263,25 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: '#333333',
     gap: 12,
+  },
+  exitButton: {
+    position: 'absolute',
+    top: 16,
+    left: 20,
+    width: 32,
+    height: 32,
+    backgroundColor: '#333333',
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#555555',
+    zIndex: 10,
+  },
+  exitButtonText: {
+    fontSize: 18,
+    color: '#ff4444',
+    fontWeight: 'bold',
   },
   timerContainer: {
     gap: 4,
